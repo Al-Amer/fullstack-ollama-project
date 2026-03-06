@@ -1,0 +1,27 @@
+to menaul run :
+
+1- forntend :
+    npm run dev -> http://localhost:5173
+
+2-backend :
+    2.1- backend-node :
+        node server.js -> http://localhost:8000
+    2.2- backend=python :
+        python3 -m venv venv
+        source venv/bin/activate
+        pip install -r requirements.txt
+        uvicorn app:app --host 0.0.0.0 --port 8001  -> http://localhost:8001
+
+3- ollama : 
+    3.1 - check if Ollama is installed : 
+        ollama --version
+    3.2 - ollama serve -> ollama run llama3.2
+    3.3 - ollama run test : 
+            curl http://localhost:11434/api/generate -d '{
+        "model": "llama3",
+        "prompt": "hello"
+        }'
+    stop ollam :
+    1 - ps aux | grep ollama => amer   12345   ...  ollama serve
+        kill 12345
+    2- pkill ollama or pkill -f ollama

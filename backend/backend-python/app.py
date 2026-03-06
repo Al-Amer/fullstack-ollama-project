@@ -56,7 +56,61 @@ def tokenize(text: str):
     print(f"Tokens: {tokens}")
     return tokens
 
+# =================================
+# STEP 3 — QUESTION VALIDATION
+# =================================
+def validate_question(text, tokens):
 
+    print("\n========== QUESTION VALIDATION ==========")
+
+    problems = []
+
+    if len(tokens) < 3:
+        problems.append("Question is too short")
+
+    if all(t.isdigit() for t in tokens):
+        problems.append("Question contains only numbers")
+
+    if not re.search(r'[a-zA-Z]', text):
+        problems.append("Question has no real words")
+
+    question_words = ["what","why","how","when","where","who","which"]
+
+    if not any(q in tokens for q in question_words):
+        problems.append("No question word detected")
+
+    if problems:
+        print("Problems detected:")
+        for p in problems:
+            print("-", p)
+    else:
+        print("Question looks good")
+
+    return problems
+
+
+# =================================
+# STEP 4 — QUESTION IMPROVEMENT
+# =================================
+def improve_question(tokens):
+
+    print("\n========== QUESTION IMPROVEMENT ==========")
+
+    if "why" in tokens:
+        improved = "why " + " ".join(tokens) + "?"
+        print("Improved question:", improved)
+        return improved
+
+    if "how" in tokens:
+        improved = "how " + " ".join(tokens) + "?"
+        print("Improved question:", improved)
+        return improved
+
+    return " ".join(tokens)
+
+# =================================
+# API ENDPOINT
+# =================================
 @app.post("/analyze")
 async def analyze(q: Q):
     try:
@@ -73,43 +127,51 @@ async def analyze(q: Q):
         # Step 2
         tokens = tokenize(cleaned)
 
-        # Step 3 — TF-IDF
+        # Step 3
+        problems = validate_question(cleaned, tokens)
+
+        if problems:
+            return {
+                "status": "bad_question",
+                "original": original,
+                "cleaned": cleaned,
+                "tokens": tokens,
+                "problems": problems,
+                "suggestion": "Please ask a clearer question."
+            }
+
+        # STEP 4
+        improved_question = improve_question(tokens)
+
+        # STEP 5 — TF-IDF
         print("\n========== TF-IDF STEP ==========")
+
         vectorizer = TfidfVectorizer()
         tfidf = vectorizer.fit_transform([cleaned]).toarray()
-        print(f"TF-IDF Vector: {tfidf}")
-        print(f"TF-IDF Shape: {tfidf.shape}")
+        print("TF-IDF vector:", tfidf)
+        print("TF-IDF shape:", tfidf.shape)
 
-        # Step 4 — Embeddings
+        # STEP 6 — EMBEDDINGS
         print("\n========== EMBEDDING STEP ==========")
         embedding = embed_model.encode(cleaned)
-        print(f"Embedding vector length: {len(embedding)}")
-        print(f"First 10 embedding values: {embedding[:10]}")
+        print("Embedding length:", len(embedding))
+        print("First 10 values:", embedding[:10])
 
-        # Step 5 — Intent Detection
-        print("\n========== INTENT DETECTION STEP ==========")
+        # STEP 7 — INTENT DETECTION
+        print("\n========== INTENT DETECTION ==========")
         intent = "unknown"
-
-        if cleaned.startswith("how") or "how" in tokens:
+        if "how" in tokens:
             intent = "how-to"
-            print("Detected 'how' → intent = how-to")
-
-        elif cleaned.startswith("what") or "what" in tokens:
+        elif "what" in tokens:
             intent = "definition"
-            print("Detected 'what' → intent = definition")
-
-        elif cleaned.startswith("why") or "why" in tokens:
+        elif "why" in tokens:
             intent = "explanation"
-            print("Detected 'why' → intent = explanation")
-
         elif "calculate" in tokens or any(t.isdigit() for t in tokens):
             intent = "calculation"
-            print("Detected number → intent = calculation")
+        print("Detected intent:", intent)
 
-        print(f"Final Intent: {intent}")
-
-        # Step 6 — Semantic info
-        print("\n========== SEMANTIC ANALYSIS STEP ==========")
+       # STEP 8 — SEMANTIC ANALYSIS
+        print("\n========== SEMANTIC ANALYSIS ==========")
         semantics = {
             "length": len(tokens),
             "contains_question_mark": '?' in original,
@@ -120,9 +182,11 @@ async def analyze(q: Q):
         print("\n========== PROCESS COMPLETE ==========\n")
 
         return {
+            "status": "ok",
             "original": original,
             "cleaned": cleaned,
             "tokens": tokens,
+            "improved_question": improved_question,
             "tfidf": tfidf.tolist(),
             "embedding_dim": len(embedding),
             "intent": intent,
