@@ -5,195 +5,194 @@ import traceback
 import re
 import nltk
 from nltk.tokenize import word_tokenize
+from nltk.corpus import stopwords
 from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
+from spellchecker import SpellChecker
 
+# Download nltk resources
 nltk.download('punkt')
+nltk.download('stopwords')
 
 app = FastAPI()
 
-# ✅ CORS MUST BE ADDED RIGHT AFTER app = FastAPI()
+# Tools
+spell = SpellChecker()
+stop_words = set(stopwords.words("english"))
+vectorizer = TfidfVectorizer()
+embed_model = SentenceTransformer("all-MiniLM-L6-v2")
+
+# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # for development
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # allow OPTIONS
+    allow_methods=["*"],
     allow_headers=["*"],
 )
-
-embed_model = SentenceTransformer('all-MiniLM-L6-v2')
 
 class Q(BaseModel):
     question: str
 
-# ===============================
-# STEP 1 — CLEANING
-# ===============================
-def clean_text(text: str) -> str:
+
+# CLEANING
+def clean_text(text: str):
     print("\n========== CLEANING STEP ==========")
-
     text = text.strip()
-    print(f"After strip: {text}")
-
     text = re.sub(r'[\r\n]+', ' ', text)
-    print(f"After removing new lines: {text}")
-
     text = re.sub(r'[^0-9a-zA-Z\s\?\.,]', '', text)
-    print(f"After removing symbols: {text}")
-
     text = text.lower()
-    print(f"After lowercase: {text}")
-
+    print("Cleaned:", text)
     return text
 
 
-# ===============================
-# STEP 2 — TOKENIZATION
-# ===============================
-def tokenize(text: str):
+# TOKENIZATION
+def tokenize(text):
     print("\n========== TOKENIZATION STEP ==========")
     tokens = word_tokenize(text)
-    print(f"Tokens: {tokens}")
+    print("Tokens:", tokens)
     return tokens
 
-# =================================
-# STEP 3 — QUESTION VALIDATION
-# =================================
+# QUESTION DETECTION 
+def detect_question_type(text, tokens):
+    print("\n========== QUESTION TYPE CHECK ==========")
+    question_words = ["what","why","how","when","where","who","which"]
+    aux_verbs = ["is","are","do","does","did","can","could","should","would","will"]
+    if text.endswith("?"):
+        return True
+    if any(q in tokens for q in question_words):
+        return True
+    if tokens and tokens[0] in aux_verbs:
+        return True
+    return False
+
+# SPELL CHECK 
+def check_spelling(tokens):
+    print("\n========== SPELL CHECK ==========")
+    misspelled = spell.unknown(tokens)
+    corrections = {}
+    for word in misspelled:
+        corrections[word] = spell.correction(word)
+    print("Misspelled:", corrections)
+    return corrections
+
+# VALIDATION 
 def validate_question(text, tokens):
-
     print("\n========== QUESTION VALIDATION ==========")
-
     problems = []
-
     if len(tokens) < 3:
-        problems.append("Question is too short")
-
+        problems.append("Question too short")
     if all(t.isdigit() for t in tokens):
         problems.append("Question contains only numbers")
-
     if not re.search(r'[a-zA-Z]', text):
         problems.append("Question has no real words")
-
-    question_words = ["what","why","how","when","where","who","which"]
-
-    if not any(q in tokens for q in question_words):
-        problems.append("No question word detected")
-
-    if problems:
-        print("Problems detected:")
-        for p in problems:
-            print("-", p)
-    else:
-        print("Question looks good")
-
     return problems
 
+# COMPLETENESS CHECK
+def check_question_completeness(tokens):
+    print("\n========== COMPLETENESS CHECK ==========")
+    meaningful = [t for t in tokens if t not in stop_words and len(t) > 3]
+    if len(meaningful) < 2:
+        return False, "Not enough meaningful words"
+    vague_words = ["it","this","that","thing","stuff"]
+    if any(w in tokens for w in vague_words):
+        return False, "Question contains vague references"
+    return True, "Question seems complete"
 
-# =================================
-# STEP 4 — QUESTION IMPROVEMENT
-# =================================
+# IMPROVEMENT 
 def improve_question(tokens):
-
     print("\n========== QUESTION IMPROVEMENT ==========")
+    question = " ".join(tokens)
+    if not question.endswith("?"):
+        question += "?"
+    print("Improved:", question)
+    return question
 
-    if "why" in tokens:
-        improved = "why " + " ".join(tokens) + "?"
-        print("Improved question:", improved)
-        return improved
-
+#  INTENT DETECTION 
+def detect_intent(tokens):
+    print("\n========== INTENT DETECTION ==========")
     if "how" in tokens:
-        improved = "how " + " ".join(tokens) + "?"
-        print("Improved question:", improved)
-        return improved
+        return "how-to"
+    if "what" in tokens:
+        return "definition"
+    if "why" in tokens:
+        return "explanation"
+    if "calculate" in tokens or any(t.isdigit() for t in tokens):
+        return "calculation"
+    return "unknown"
 
-    return " ".join(tokens)
-
-# =================================
 # API ENDPOINT
-# =================================
 @app.post("/analyze")
 async def analyze(q: Q):
     try:
-        print("\n\n==============================")
-        print("NEW REQUEST RECEIVED")
-        print("==============================")
-
+        print("\n\n===== NEW REQUEST =====")
         original = q.question
-        print(f"\nOriginal text: {original}")
-
-        # Step 1
+        print("Original:", original)
+        # 1 CLEAN
         cleaned = clean_text(original)
-
-        # Step 2
+        # 2 TOKENIZE
         tokens = tokenize(cleaned)
-
-        # Step 3
+        # 3 QUESTION TYPE
+        is_question = detect_question_type(cleaned, tokens)
+        if not is_question:
+            return {
+                "status": "not_a_question",
+                "message": "Input looks like a normal sentence."
+            }
+        # 4 SPELL CHECK
+        spelling_errors = check_spelling(tokens)
+        # 5 VALIDATION
         problems = validate_question(cleaned, tokens)
-
         if problems:
             return {
                 "status": "bad_question",
-                "original": original,
-                "cleaned": cleaned,
-                "tokens": tokens,
-                "problems": problems,
-                "suggestion": "Please ask a clearer question."
+                "problems": problems
             }
+        # 6 TF-IDF
+        print("\n========== TF-IDF ==========")
+        tfidf_matrix = vectorizer.fit_transform([cleaned])
+        tfidf = tfidf_matrix.toarray()
 
-        # STEP 4
-        improved_question = improve_question(tokens)
+        # 7 EMBEDDING
+        print("\n========== EMBEDDING ==========")
+        embedding = embed_model.encode(cleaned)
 
-        # STEP 5 — TF-IDF
-        print("\n========== TF-IDF STEP ==========")
-
-        vectorizer = TfidfVectorizer()
-        tfidf = vectorizer.fit_transform([cleaned]).toarray()
-        print("TF-IDF vector:", tfidf)
-        print("TF-IDF shape:", tfidf.shape)
-
-        # STEP 6 — EMBEDDINGS
-        print("\n========== EMBEDDING STEP ==========")
+        # 8 COMPLETENESS
+        complete, message = check_question_completeness(tokens)
+        if not complete:
+            return {
+                "status": "incomplete_question",
+                "message": message
+            }
+        # 9 EMBEDDING
+        print("\n========== EMBEDDING ==========")
+        # embedding = embed_model.encode(cleaned)
         embedding = embed_model.encode(cleaned)
         print("Embedding length:", len(embedding))
         print("First 10 values:", embedding[:10])
-
-        # STEP 7 — INTENT DETECTION
-        print("\n========== INTENT DETECTION ==========")
-        intent = "unknown"
-        if "how" in tokens:
-            intent = "how-to"
-        elif "what" in tokens:
-            intent = "definition"
-        elif "why" in tokens:
-            intent = "explanation"
-        elif "calculate" in tokens or any(t.isdigit() for t in tokens):
-            intent = "calculation"
-        print("Detected intent:", intent)
-
-       # STEP 8 — SEMANTIC ANALYSIS
-        print("\n========== SEMANTIC ANALYSIS ==========")
+        # 10 INTENT
+        intent = detect_intent(tokens)
+        # 11 SEMANTICS
         semantics = {
             "length": len(tokens),
-            "contains_question_mark": '?' in original,
-            "top_tokens": tokens[:5]
+            "contains_question_mark": "?" in original,
+            "keywords": tokens[:5]
         }
-        print(f"Semantic Info: {semantics}")
-
-        print("\n========== PROCESS COMPLETE ==========\n")
-
+        print("\n========== DONE ==========")
         return {
             "status": "ok",
             "original": original,
             "cleaned": cleaned,
             "tokens": tokens,
+            "spelling_errors": spelling_errors,
             "improved_question": improved_question,
             "tfidf": tfidf.tolist(),
-            "embedding_dim": len(embedding),
+            "tfidf_shape": tfidf.shape,
+            "embedding_dimension": len(embedding),
             "intent": intent,
-            "semantics": semantics,
-            "final_answer": f"Detected intent: {intent}. Tokens: {len(tokens)}."
+            "semantics": semantics
         }
     except Exception as e:
-        print("ERROR in /analyze:", e)
+        print("ERROR:", e)
         traceback.print_exc()
         return {"error": str(e)}

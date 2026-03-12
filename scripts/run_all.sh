@@ -5,7 +5,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 # Create logs folder first
-mkdir -p logs
+# mkdir -p logs
+mkdir -p "$ROOT/logs"
 
 echo "Starting fullstack project..."
 
@@ -16,7 +17,8 @@ if [ ! -d node_modules ]; then
   npm install
 fi
 # start frontend in background (Vite default dev server)
-npm run dev > ../logs/frontend.log 2>&1 &
+# npm run dev > ../logs/frontend.log 2>&1 &
+npm run dev > "$ROOT/logs/frontend.log" 2>&1 &
 FRONTEND_PID=$!
 echo "Frontend started (PID $FRONTEND_PID). Logs: ../logs/frontend.log"
 cd "$ROOT"
@@ -60,3 +62,16 @@ echo "To stop: kill $FRONTEND_PID $NODE_PID $PY_PID (or use pkill -f uvicorn / n
 echo $FRONTEND_PID > logs/frontend.pid
 echo $NODE_PID > logs/node.pid
 echo $PY_PID > logs/python.pid
+echo ""
+echo "All services started:"
+echo "Frontend -> http://localhost:5173"
+echo "Node API -> http://localhost:8000"
+echo "Python API -> http://localhost:8001"
+echo ""
+echo "Logs:"
+echo "logs/frontend.log"
+echo "logs/backend-node.log"
+echo "logs/backend-python.log"
+echo ""
+echo "To stop everything run:"
+echo "./scripts/stop_all.sh"
